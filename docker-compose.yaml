@@ -1,0 +1,11 @@
+services:
+  weii:
+    build: .
+    container_name: weii-mqtt
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    environment:
+      - MQTT_HOST=
+      - MQTT_PORT=
+      - MAC_ADDRESS=
