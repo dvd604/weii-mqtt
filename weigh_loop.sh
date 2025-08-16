@@ -85,28 +85,27 @@ while read -r line; do
   esac
 done &
 
-# Main weigh loop
+# Main weigh loop with Garmin sync
 while true; do
   TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
   echo "[$TIMESTAMP] Starting weii weight measurement..."
 
-  WEII_OUTPUT=$(weii --disconnect-when-done "$MAC_ADDRESS" 2>weii_err.log)
-  EXIT_CODE=$?
+  TMP_OUTPUT=$(mktemp)
+
+  # Stream weii output to stdout and temp file
+  weii --disconnect-when-done "$MAC_ADDRESS" 2>weii_err.log | tee "$TMP_OUTPUT"
+  EXIT_CODE=${PIPESTATUS[0]}
 
   if [ $EXIT_CODE -ne 0 ]; then
     echo "[$TIMESTAMP] [ERROR] weii exited with code $EXIT_CODE"
     cat weii_err.log
-    rm -f weii_err.log
+    rm -f weii_err.log "$TMP_OUTPUT"
     sleep $RETRY_DELAY
     continue
   fi
 
-  rm -f weii_err.log
-
-  echo "[$TIMESTAMP] weii output:"
-  echo "$WEII_OUTPUT"
-
-  WEIGHT=$(echo "$WEII_OUTPUT" | grep 'Done, weight:' | sed -E 's/.*Done, weight: ([0-9]+(\.[0-9]+)?).*/\1/')
+  WEIGHT=$(grep 'Done, weight:' "$TMP_OUTPUT" | sed -E 's/.*Done, weight: ([0-9]+(\.[0-9]+)?).*/\1/')
+  rm -f "$TMP_OUTPUT" weii_err.log
 
   if [ -z "$WEIGHT" ]; then
     echo "[$TIMESTAMP] [WARNING] No valid weight found."
@@ -116,14 +115,24 @@ while true; do
 
   echo "[$TIMESTAMP] Weight read: $WEIGHT kg"
 
+  # Publish to MQTT if auto-publish is ON
   if [ "$AUTO_PUBLISH" == "ON" ]; then
     mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -t "$SENSOR_TOPIC/state" -m "$WEIGHT"
     mosquitto_pub -h "$MQTT_HOST" -p "$MQTT_PORT" -t "$ATTRIBUTES_TOPIC" -m "{
       \"last_weigh_time\": \"$(date --iso-8601=seconds)\"
     }"
-    echo "[$TIMESTAMP] Published to MQTT: $SENSOR_TOPIC/state → $WEIGHT"
+    echo "[$TIMESTAMP] Published to MQTT: $SENSOR_TOPIC/state ? $WEIGHT"
+
+    # Garmin sync
+    if [ -x "/app/garmin_weight_sync.py" ]; then
+      echo "[$TIMESTAMP] Syncing weight to Garmin..."
+      python3 /app/garmin_weight_sync.py "$WEIGHT" || \
+        echo "[$TIMESTAMP] [ERROR] Garmin sync failed"
+    else
+      echo "[$TIMESTAMP] Garmin sync script not found or not executable."
+    fi
   else
-    echo "[$TIMESTAMP] Auto-publish OFF; skipping publish."
+    echo "[$TIMESTAMP] Auto-publish OFF; skipping publish and Garmin sync."
   fi
 
   sleep $RETRY_DELAY
