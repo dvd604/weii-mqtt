@@ -10,9 +10,9 @@ RUN apt-get update && apt-get install -y \
     mosquitto-clients \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pipx to install weii isolated
-RUN python3 -m pip install --upgrade pip setuptools wheel pipx
-RUN python3 -m pipx ensurepath
+# Install pipx and upgrade base tools
+RUN python3 -m pip install --upgrade pip setuptools wheel pipx \
+    && python3 -m pipx ensurepath
 
 # Install weii via pipx (puts binary on PATH)
 RUN pipx install weii
@@ -20,11 +20,22 @@ RUN pipx install weii
 # Add pipx binaries to PATH for runtime
 ENV PATH=/root/.local/bin:$PATH
 
+# --- Install Python dependencies for Garmin ---
+RUN pip install garminconnect
+
 WORKDIR /app
 
-# Copy your script into container
+# Copy scripts into container
 COPY weigh_loop.sh .
+COPY garmin_weight_sync.py .
 
-RUN chmod +x weigh_loop.sh
+# Create directory for Garmin session cache
+RUN mkdir -p /app/session
+
+# Make scripts executable
+RUN chmod +x weigh_loop.sh garmin_weight_sync.py
+
+# Persist session.json in this directory
+VOLUME ["/app/session"]
 
 CMD ["./weigh_loop.sh"]
