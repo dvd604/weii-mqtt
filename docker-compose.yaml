@@ -9,3 +9,8 @@ services:
       - MQTT_HOST=
       - MQTT_PORT=
       - MAC_ADDRESS=
+      - MQTT_TOPIC=
+      - GARMIN_EMAIL=
+      - GARMIN_PASS=
+    volumes:
+      - ./session:/app/session   # persistent Garmin session cache
